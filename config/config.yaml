@@ -1,0 +1,7 @@
+server:
+  port: 8099
+  maxNodeLockManager: 10
+  domain: "http://127.0.0.1:8099"
+
+wework:
+  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx"

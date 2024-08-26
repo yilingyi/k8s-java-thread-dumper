@@ -1,229 +1,209 @@
-# Java高CPU自动抓取堆栈信息
-利用了 Grafana 的告警机制，配合阿里的 arthas，来完成高CPU使用率线程的堆栈抓取。  
+# Pod高负载自动打印JAVA线程堆栈
+
+## 背景
+
+在实际的k8s维护场景中，我们时常会遇到 Pod CPU 突刺的现象。由于信息捕获依赖人工采集，有时甚至还未完成信息捕获，问题就已经恢复了，这让人非常头大。因此，我们需要一个可以自动捕获信息的工具。在GitHub上，我们发现了一个不错的项目k8s-java-debug-daemon，但由于年久失修，已无法满足当前环境的运行需求，所以我们决定对该项目进行二次开发。
+
+## 优化内容
+* 支持新版的Grafana
+* 支持企业微信告警
+* 支持k8s部署
+* 支持configmap进行配置
+* 修复n多已知问题
+
+## 工作流程
+
+与 Grafana 的告警联动，配合阿里的 arthas，来完成高CPU使用率线程的堆栈抓取。  
 整体流程如下：
+
 1. 为 Grafana 添加 webhook 类型的告警通知渠道，地址为该程序的 url(默认的hooks路径为 /hooks)。
 2. 配置Grafana图表，并设置告警阈值
-3. 当 webhook 触发时，程序会自动将 craw.sh 脚本拷贝到对应 Pod 的容器中并执行。
-4. 程序将 stdout 保存到本地文件。
+3. 当 webhook 触发时，程序会自动将 crawl.sh 脚本拷贝到对应 Pod 的容器中并执行。
+4. 程序将 stdout 保存到本地文件，并推送到企业微信。
 
 ## 效果预览
-![](https://cdn.jsdelivr.net/gh/majian159/blogs@master/images/2020_04_27_15_53_bH3y0o%20.png)
-![](https://cdn.jsdelivr.net/gh/majian159/blogs@master/images/2020_04_27_15_54_XrXVpk%20.png)
 
-## 默认行为
-- 每 node 同时运行执行数为10
-  可以在 `./internal/defaultvalue.go` 中更改
-  ```go
-  var defaultNodeLockManager = nodelock.NewLockManager(10)
-  ```
-- 默认使用集群内的Master配置  
-  可以在 `./internal/defaultvalue.go` 中更改
-  ```go
-  func DefaultKubernetesClient(){}
+* 企业微信告警展示
 
-  // default
-  func getConfigByInCluster(){}
+![](static/pic/1.png)
 
-  func getConfigByOutOfCluster(){}
-  ```
-- 默认使用并实现了一个基于本地文件的堆栈存储器, 路径位于工作路径下的 `stacks`中  
-  可以在 `./internal/defaultvalue.go` 中更改
-  ```go
-  func GetDefaultNodeLockManager(){}
-  ```
-- 默认取最繁忙的前50个线程的堆栈信息 (可在 `craw.sh` 中修改)
-- 采集样本时间为2秒 (可在 `craw.sh` 中修改)
+* “点击查看”跳转访问arthas捕获的线程堆栈
+
+![](static/pic/2.png)
+
+## 支持环境
+Grafana v10.x (v9.x应该也支持，未测试)
+
+## 配置说明
+- config/config.yaml配置项
+
+```yaml
+server:
+  port: 8099  # 服务监听端口
+  maxNodeLockManager: 10 # 每node同时运行执行数为10
+  domain: "http://127.0.0.1:8099" # 服务监听域名
+
+wework:
+  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxx" # 企业微信webhook地址
+```
+- 默认取最繁忙的前50个线程的堆栈信息 (可在 `crawl.sh` 中修改)
+- 采集样本时间为2秒 (可在 `crawl.sh` 中修改)
 
 ## 如何使用
-### Docker Image
-[majian159/java-debug-daemon](https://hub.docker.com/r/majian159/java-debug-daemon)
 
-### 为 Grafana 新建一个通知频道
-![](https://cdn.jsdelivr.net/gh/majian159/blogs@master/images/2020_04_27_15_08_ID8XfL%20.png)
-#### 注意点
-1. 需要打开 Send reminders, 不然 Grafana 默认在触发告警后一直没有解决不会重复发送告警
-2. Send reminder every 可以控制最快多久告警一次
+### Docker镜像
 
-### 为 Grafana 新建一个告警图表
-如果嫌麻烦可以直接导入以下配置, 在自行更改
-```json
-{
-  "datasource": "prometheus",
-  "alert": {
-    "alertRuleTags": {},
-    "conditions": [
-      {
-        "evaluator": {
-          "params": [
-            1
-          ],
-          "type": "gt"
-        },
-        "operator": {
-          "type": "and"
-        },
-        "query": {
-          "params": [
-            "A",
-            "5m",
-            "now"
-          ]
-        },
-        "reducer": {
-          "params": [],
-          "type": "last"
-        },
-        "type": "query"
-      }
-    ],
-    "executionErrorState": "keep_state",
-    "for": "10s",
-    "frequency": "30s",
-    "handler": 1,
-    "name": "Pod 高CPU堆栈抓取",
-    "noDataState": "no_data",
-    "notifications": [
-      {
-        "uid": "AGOJRCqWz"
-      }
-    ]
-  },
-  "aliasColors": {},
-  "bars": false,
-  "dashLength": 10,
-  "dashes": false,
-  "fill": 1,
-  "fillGradient": 0,
-  "gridPos": {
-    "h": 9,
-    "w": 24,
-    "x": 0,
-    "y": 2
-  },
-  "hiddenSeries": false,
-  "id": 14,
-  "legend": {
-    "alignAsTable": true,
-    "avg": true,
-    "current": true,
-    "max": true,
-    "min": false,
-    "rightSide": true,
-    "show": true,
-    "total": false,
-    "values": true
-  },
-  "lines": true,
-  "linewidth": 1,
-  "nullPointMode": "null",
-  "options": {
-    "dataLinks": []
-  },
-  "percentage": false,
-  "pointradius": 2,
-  "points": false,
-  "renderer": "flot",
-  "seriesOverrides": [],
-  "spaceLength": 10,
-  "stack": false,
-  "steppedLine": false,
-  "targets": [
-    {
-      "expr": "container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", image!=\"\", container!=\"POD\"}* on (namespace, pod) group_left(node) max by(namespace, pod, node, container) (kube_pod_info)",
-      "legendFormat": "{{node}} - {{namespace}} - {{pod}} - {{container}}",
-      "refId": "A"
-    }
-  ],
-  "thresholds": [
-    {
-      "colorMode": "critical",
-      "fill": true,
-      "line": true,
-      "op": "gt",
-      "value": 1
-    }
-  ],
-  "timeFrom": null,
-  "timeRegions": [],
-  "timeShift": null,
-  "title": "Pod CPU",
-  "tooltip": {
-    "shared": true,
-    "sort": 0,
-    "value_type": "individual"
-  },
-  "type": "graph",
-  "xaxis": {
-    "buckets": null,
-    "mode": "time",
-    "name": null,
-    "show": true,
-    "values": []
-  },
-  "yaxes": [
-    {
-      "format": "short",
-      "label": null,
-      "logBase": 1,
-      "max": null,
-      "min": null,
-      "show": true
-    },
-    {
-      "format": "short",
-      "label": null,
-      "logBase": 1,
-      "max": null,
-      "min": null,
-      "show": true
-    }
-  ],
-  "yaxis": {
-    "align": false,
-    "alignLevel": null
-  }
-}
-```
+* 这是编译好的镜像，可以直接拉取使用
 
-#### Queries配置
-Metrics 中填写
 ```text
-container_memory_working_set_bytes{job="kubelet", metrics_path="/metrics/cadvisor", image!="", container!="POD"} * on (namespace, pod) group_left(node) max by(namespace, pod, node, container) (kube_pod_info)
+docker pull registry.cn-hangzhou.aliyuncs.com/yilingyi/k8s-java-thread-dumper:2.0.1
 ```
+
+* 自行构建
+
+拉取源码
+```text
+git clone https://github.com/yilingyi/k8s-java-thread-dumper.git
+```
+
+构建镜像
+```text
+make docker IMAGE=yilingyi/k8s-java-thread-dumper:2.0.1
+```
+
+### Kubernetes部署
+
+* 创建命名空间monitor
+
+```text
+kubectl create namespace monitor
+```
+
+* 将下面三个文件放在同一目录下，并使用`kubectl apply -f . -n monitor`进行k8s资源创建
+
+Deployment.yaml
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-java-thread-dumper
+  labels:
+    app: k8s-java-thread-dumper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-java-thread-dumper
+  template:
+    metadata:
+      labels:
+        app: k8s-java-thread-dumper
+    spec:
+      containers:
+      - name: k8s-java-thread-dumper
+        image: registry.cn-hangzhou.aliyuncs.com/yilingyi/k8s-java-thread-dumper:2.0.1
+        ports:
+        - containerPort: 8099
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config/config.yaml
+          subPath: config.yaml
+      volumes:
+      - name: config-volume
+        configMap:
+          name: k8s-java-thread-dumper-config
+```
+
+Service.yaml
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-java-thread-dumper-service
+  labels:
+    app: k8s-java-thread-dumper
+spec:
+  selector:
+    app: k8s-java-thread-dumper
+  ports:
+  - protocol: TCP
+    port: 8099
+    targetPort: 8099
+  type: NodePort
+```
+
+ConfigMap.yaml
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-java-thread-dumper-config
+data:
+  config.yaml: |
+    server:
+      port: 8099
+      maxNodeLockManager: 10
+      domain: "http://127.0.0.1:8099"
+    wework:
+      webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxx"
+```
+* 资源授权
+
+保存为rolebinding.yaml，并使用`kubectl apply -f rolebinding.yaml`进行创建，其中`<target-namespace>`改为目标命名空间
+
+```text
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: <target-namespace>
+  name: pod-exec-role
+rules:
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: pod-exec-role-binding
+  namespace: <target-namespace>
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: monitor
+roleRef:
+  kind: Role
+  name: pod-exec-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+#### Grafana告警规则
+
+* Metrics Browser中填写
+
+```text
+sum(irate(container_cpu_usage_seconds_total{prometheus_name=~"gz",pod=~".*",container =~".*",container !="",container!="POD",node=~".*",namespace=~"(prod)"}[2m])) by (namespace, pod, node, container) / (sum(container_spec_cpu_quota{prometheus_name=~"gz",pod=~".*",container =~".*",container !="",container!="POD",node=~".*",namespace=~"(prod)"}/100000) by (namespace, pod, node, container)) * 100
+```
+
 Legend 中填写
+
 ```text
 {{node}} - {{namespace}} - {{pod}} - {{container}}
 ```
 
 配置完如下：
-![](https://cdn.jsdelivr.net/gh/majian159/blogs@master/images/2020_04_27_15_23_l95PjW%20.jpg)
+![](static/pic/3.png)
 
-#### Alert配置
-**IS ABOVE**  
-CPU使用值，这边配置的是超过1核CPU就报警, 可以根据需要自己调节  
-**Evaluate every**  
-每多久计算一次  
-**For**  
-Pedding时间  
+* 联络点配置
 
-配置完应该如下:  
-![](https://cdn.jsdelivr.net/gh/majian159/blogs@master/images/2020_04_27_15_26_xOjjLk%20.jpg)
+选择webhook,URL地址为http://xxxxx/hooks
 
-## 构建
-### 二进制
-```sh
-# 为当前系统平台构建
-make
+配置完如下：
+![](static/pic/4.png)
 
-# 指定目标系统, GOOS: linux darwin window freebsd
-make GOOS=linux
+## **欢迎订阅我的公众号「SRE运维手记」**
+![](static/pic/5.png)
 
-```
-
-### Docker镜像
-```sh
-make docker
-
-# 自定义镜像tag
-make docker IMAGE=test
-```
+参考链接
+https://github.com/majian159/k8s-java-debug-daemon.git

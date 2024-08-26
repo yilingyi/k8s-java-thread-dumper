@@ -50,5 +50,5 @@ jobs:
       uses: docker/build-push-action@v2.7.0
       with:
         push: true
-        tags: majian159/java-debug-daemon:${{ steps.get_version.outputs.VERSION }}
+        tags: yilingyi/k8s-java-thread-dumper:${{ steps.get_version.outputs.VERSION }}
         context: .

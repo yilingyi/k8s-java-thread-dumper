@@ -1,4 +1,4 @@
-IMAGE?="majian159/java-debug-daemon"
+IMAGE?="yilingyi/k8s-java-thread-dumper"
 GOOS?=$(shell uname -s)
 override GOOS:=$(shell echo ${GOOS} | tr '[A-Z]' '[a-z]')
 TARGET?="jdd-${GOOS}"
@@ -8,4 +8,4 @@ build:
 	GOOS=${GOOS} go build -o ${TARGET} cmd/main.go
 docker:
 	make build GOOS=linux
-	docker build . -t ${IMAGE}
+	docker buildx build -t ${IMAGE} . --load

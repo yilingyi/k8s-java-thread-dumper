@@ -5,3 +5,7 @@ server:
 
 wework:
   webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx"
+
+arthas:
+  remoteCopy: true
+  path: "tools/arthas-boot.jar"

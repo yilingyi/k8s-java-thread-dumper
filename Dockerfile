@@ -20,8 +20,11 @@ RUN go build -o target/jdd cmd/main.go \
 # 阶段 3: 创建最终镜像
 FROM registry.cn-hangzhou.aliyuncs.com/yilingyi/ubuntu:23.04
 WORKDIR /app
+ENV LANG en_US.UTF-8
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+RUN echo 'Asia/Shanghai' >/etc/timezone
 RUN apt update && apt install -y tzdata --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /source/target .
-COPY --from=builder /source/config ./config
+COPY --from=builder /source/tools ./tools
 
 CMD ["./jdd"]
